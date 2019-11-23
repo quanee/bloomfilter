@@ -12,7 +12,10 @@ const (
 	m2 = 2820277070424839065
 	m3 = 9497967016996688599
 	m4 = 15839092249703872147
+	c0 = uintptr((8-PtrSize)/4*2860486313 + (PtrSize-4)/4*33054211828000289)
+	c1 = uintptr((8-PtrSize)/4*3267000013 + (PtrSize-4)/4*23344194077549503)
 )
+
 const bigEndian = false
 const PtrSize = 4 << (^uintptr(0) >> 63)
 
@@ -21,6 +24,12 @@ var hashkey [4]uintptr
 type stringStruct struct {
 	str unsafe.Pointer
 	len int
+}
+
+type slice struct {
+	array unsafe.Pointer
+	len   int
+	cap   int
 }
 
 func init() {
@@ -39,6 +48,45 @@ func getRandomData(r []byte) {
 func strhash(a unsafe.Pointer, h uintptr) uintptr {
 	x := (*stringStruct)(a)
 	return memhash(x.str, h, uintptr(x.len))
+}
+
+func bytesHash(b []byte, seed uintptr) uintptr {
+	s := (*slice)(unsafe.Pointer(&b))
+	return memhash(s.array, seed, uintptr(s.len))
+}
+
+func f32hash(p unsafe.Pointer, h uintptr) uintptr {
+	f := *(*float32)(p)
+	switch {
+	case f == 0:
+		return c1 * (c0 ^ h) // +0, -0
+	case f != f:
+		return c1 * (c0 ^ h ^ uintptr(rand.Int31())) // any kind of NaN
+	default:
+		return memhash(p, h, 4)
+	}
+}
+
+func f64hash(p unsafe.Pointer, h uintptr) uintptr {
+	f := *(*float64)(p)
+	switch {
+	case f == 0:
+		return c1 * (c0 ^ h) // +0, -0
+	case f != f:
+		return c1 * (c0 ^ h ^ uintptr(rand.Int31())) // any kind of NaN
+	default:
+		return memhash(p, h, 8)
+	}
+}
+
+func c64hash(p unsafe.Pointer, h uintptr) uintptr {
+	x := (*[2]float32)(p)
+	return f32hash(unsafe.Pointer(&x[1]), f32hash(unsafe.Pointer(&x[0]), h))
+}
+
+func c128hash(p unsafe.Pointer, h uintptr) uintptr {
+	x := (*[2]float64)(p)
+	return f64hash(unsafe.Pointer(&x[1]), f64hash(unsafe.Pointer(&x[0]), h))
 }
 
 func memhash(p unsafe.Pointer, seed, s uintptr) uintptr {
@@ -100,21 +148,15 @@ tail:
 	return uintptr(h)
 }
 
-// Note: These routines perform the read with an native endianness.
 func readUnaligned32(p unsafe.Pointer) uint32 {
 	q := (*[4]byte)(p)
-	if bigEndian {
-		return uint32(q[3]) | uint32(q[2])<<8 | uint32(q[1])<<16 | uint32(q[0])<<24
-	}
+
 	return uint32(q[0]) | uint32(q[1])<<8 | uint32(q[2])<<16 | uint32(q[3])<<24
 }
 
 func readUnaligned64(p unsafe.Pointer) uint64 {
 	q := (*[8]byte)(p)
-	if bigEndian {
-		return uint64(q[7]) | uint64(q[6])<<8 | uint64(q[5])<<16 | uint64(q[4])<<24 |
-			uint64(q[3])<<32 | uint64(q[2])<<40 | uint64(q[1])<<48 | uint64(q[0])<<56
-	}
+
 	return uint64(q[0]) | uint64(q[1])<<8 | uint64(q[2])<<16 | uint64(q[3])<<24 | uint64(q[4])<<32 | uint64(q[5])<<40 | uint64(q[6])<<48 | uint64(q[7])<<56
 }
 
