@@ -1,7 +1,8 @@
 package bloomfilter
 
 import (
-	"runtime"
+	"log"
+	"math/rand"
 	"unsafe"
 )
 
@@ -13,6 +14,7 @@ const (
 	m4 = 15839092249703872147
 )
 const bigEndian = false
+const PtrSize = 4 << (^uintptr(0) >> 63)
 
 var hashkey [4]uintptr
 
@@ -22,23 +24,16 @@ type stringStruct struct {
 }
 
 func init() {
-	/*if (runtime.GOARCH == "386" || runtime.GOARCH == "amd64") &&
-		runtime.GOOS != "nacl" &&
-		cpu.X86.HasAES && // AESENC
-		cpu.X86.HasSSSE3 && // PSHUFB
-		cpu.X86.HasSSE41 { // PINSR{D,Q}
-		initAlgAES()
-		return
-	}
-	if GOARCH == "arm64" && cpu.ARM64.HasAES {
-		initAlgAES()
-		return
-	}
-	getRandomData((*[len(hashkey) * sys.PtrSize]byte)(unsafe.Pointer(&hashkey))[:])*/
+	getRandomData((*[len(hashkey) * PtrSize]byte)(unsafe.Pointer(&hashkey))[:])
 	hashkey[0] |= 1 // make sure these numbers are odd
 	hashkey[1] |= 1
 	hashkey[2] |= 1
 	hashkey[3] |= 1
+	log.Print(hashkey)
+}
+
+func getRandomData(r []byte) {
+	rand.Read(r)
 }
 
 func strhash(a unsafe.Pointer, h uintptr) uintptr {
@@ -47,10 +42,6 @@ func strhash(a unsafe.Pointer, h uintptr) uintptr {
 }
 
 func memhash(p unsafe.Pointer, seed, s uintptr) uintptr {
-	if (runtime.GOARCH == "amd64" || runtime.GOARCH == "arm64") &&
-		runtime.GOOS != "nacl" /*&& useAeshash*/ {
-		//return aeshash(p, seed, s)
-	}
 	h := uint64(seed + s*hashkey[0])
 tail:
 	switch {
@@ -105,7 +96,7 @@ tail:
 	h ^= h >> 29
 	h *= m3
 	h ^= h >> 32
-	//log.Printf("memhash hash value \t%x %v", h, s)
+
 	return uintptr(h)
 }
 
@@ -131,28 +122,13 @@ func rotl_31(x uint64) uint64 {
 	return (x << 31) | (x >> (64 - 31))
 }
 
-// Should be a built-in for unsafe.Pointer?
 //go:nosplit
 func add(p unsafe.Pointer, x uintptr) unsafe.Pointer {
 	return unsafe.Pointer(uintptr(p) + x)
 }
-
-func memhash32(p unsafe.Pointer, seed uintptr) uintptr {
-	h := uint64(seed + 4*hashkey[0])
-	v := uint64(readUnaligned32(p))
-	h ^= v
-	h ^= v << 32
-	h = rotl_31(h*m1) * m2
-	h ^= h >> 29
-	h *= m3
-	h ^= h >> 32
-	return uintptr(h)
-}
-
 
 //go:nosplit
 func noescape(p unsafe.Pointer) unsafe.Pointer {
 	x := uintptr(p)
 	return unsafe.Pointer(x ^ 0)
 }
-
